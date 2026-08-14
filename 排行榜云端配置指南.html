@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>排行榜云端配置指南 · 2048对战 · Supabase 版</title>
+<style>
+ * { margin: 0; padding: 0; box-sizing: border-box; }
+ body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f1f5f9; color: #1e293b; line-height: 1.75; padding: 24px 16px 60px; }
+ .wrap { max-width: 880px; margin: 0 auto; }
+ header.hero { background: linear-gradient(135deg, #3ecf8e 0%, #1d9e6e 55%, #0f172a 100%); border-radius: 16px; padding: 32px 28px; color: #fff; margin-bottom: 24px; }
+ header.hero h1 { font-size: 26px; margin-bottom: 8px; }
+ header.hero p { color: #e2f5ec; font-size: 14px; }
+ .badge { display: inline-block; background: rgba(255,255,255,.2); color: #fff; border: 1px solid rgba(255,255,255,.35); border-radius: 20px; padding: 2px 12px; font-size: 12px; margin-bottom: 12px; }
+ .card { background: #fff; border-radius: 14px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(15,23,42,.06); }
+ .card h2 { font-size: 18px; margin-bottom: 14px; color: #0f766e; display: flex; align-items: center; gap: 8px; }
+ .card h3 { font-size: 15px; margin: 16px 0 8px; color: #334155; }
+ .card p, .card li { font-size: 14px; color: #475569; }
+ .card ul, .card ol { padding-left: 22px; }
+ .card li { margin: 6px 0; }
+ .steps { display: flex; flex-direction: column; }
+ .step { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px dashed #e2e8f0; }
+ .step:last-child { border-bottom: none; }
+ .step-num { flex: 0 0 34px; height: 34px; border-radius: 50%; background: #0f766e; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; }
+ .step-body { flex: 1; }
+ .step-title { font-weight: 700; font-size: 15px; color: #1e293b; }
+ .step-text { font-size: 13.5px; color: #64748b; margin-top: 4px; }
+ .code-block { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; margin: 10px 0; display: block; }
+ .code-block .cm { color: #6b7280; }
+ .inline-code { background: #0f172a; color: #e2e8f0; padding: 1px 6px; border-radius: 6px; font-family: Consolas, monospace; font-size: 12.5px; }
+ .warn { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 12px 16px; font-size: 13.5px; color: #9a3412; margin: 12px 0; }
+ .ok { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 12px 16px; font-size: 13.5px; color: #166534; margin: 12px 0; }
+ table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13.5px; }
+ th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
+ th { background: #f8fafc; color: #334155; }
+ .muted { color: #94a3b8; font-size: 12.5px; }
+ .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+ @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+ <span class="badge">⚙️ 配置指南 · Supabase 版</span>
+ <h1>排行榜云端配置指南</h1>
+ <p>让「2048对战」的合成榜变成真正的全站实时排行榜：所有玩家的最高分自动上榜、实时排名，人人可见。</p>
+</header>
+
+<div class="card">
+ <h2>🚦 先看懂现状</h2>
+ <p>原版 2048 的排行榜按钮存在，但它的数据接口指向网站自身（<span class="inline-code">location.origin/api/...</span>），在 GitHub Pages 这种纯静态托管下必然失败，只能看到自己浏览器里的本地记录——<b>别人根本看不见你</b>。</p>
+ <p>本次改造后（<b>双后端兼容</b>）：</p>
+ <ul>
+  <li><b>未配置</b>：自动进入「本地模式」，排行榜弹窗可用，记录仅本机可见（不影响玩）。</li>
+  <li><b>配置 Supabase</b>（推荐，本指南）：合成榜实时显示<b>每个玩家的最高单局分数 + 排名</b>，10 秒自动刷新，人人可见。</li>
+  <li><b>配置 LeanCloud</b>（备选）：同样可用，见文末附录。</li>
+ </ul>
+ <div class="ok">✅ 两种后端自动识别，配置填哪个就用哪个，无需改游戏代码。</div>
+</div>
+
+<div class="card">
+ <h2>🧭 为什么用 Supabase</h2>
+ <div class="grid2">
+  <div>
+   <h3>优势</h3>
+   <ul>
+    <li>谷歌 / GitHub 账号<b>一键注册</b>，不用手机号</li>
+    <li>免费版：50 万次请求/月、500MB 数据库，校园规模绰绰有余</li>
+    <li>新加坡节点，国内访问速度可接受</li>
+    <li>PostgREST 接口，前端直连数据库，天生为网页设计</li>
+    <li>数据在云端，换设备、清缓存都不丢</li>
+   </ul>
+  </div>
+  <div>
+   <h3>需要准备</h3>
+   <ul>
+    <li>一个谷歌或 GitHub 账号</li>
+    <li>约 10 分钟操作时间</li>
+    <li>全程在浏览器里点，无需安装任何软件</li>
+   </ul>
+  </div>
+ </div>
+</div>
+
+<div class="card">
+ <h2>🛠 开通步骤（约 10 分钟）</h2>
+ <div class="steps">
+  <div class="step">
+   <div class="step-num">1</div>
+   <div class="step-body">
+    <div class="step-title">用谷歌账号登录 Supabase</div>
+    <div class="step-text">浏览器打开 <span class="inline-code">supabase.com</span> → 点右上角 <b>「Start your project」</b> → 选 <b>「Continue with Google」</b>（用你的谷歌账号）。首次登录可能要求填一个 Organization 名称，随便填（如 <span class="inline-code">ahut</span>）。</div>
+   </div>
+  </div>
+  <div class="step">
+   <div class="step-num">2</div>
+   <div class="step-body">
+    <div class="step-title">创建项目</div>
+    <div class="step-text">点 <b>「New project」</b>，填写：</div>
+    <ul>
+     <li>Organization：选默认那个</li>
+     <li>Name：<span class="inline-code">ahut-2048</span>（随意）</li>
+     <li>Database Password：设一个密码（<b>必须设</b>，记不住就点 Generate 生成并抄下来）</li>
+     <li>Region：选 <b>Singapore</b>（亚太节点，国内访问最快）</li>
+    </ul>
+    <div class="step-text">点 <b>「Create new project」</b>，等 1~2 分钟自动创建完成。</div>
+   </div>
+  </div>
+  <div class="step">
+   <div class="step-num">3</div>
+   <div class="step-body">
+    <div class="step-title">执行建表 SQL（一键搞定表 + 权限）</div>
+    <div class="step-text">左侧菜单点 <b>「SQL Editor」</b> → <b>「New query」</b>，把下面整段代码粘贴进去，点右下角 <b>「Run」</b>（绿色按钮）。显示 <b>Success</b> 即可：</div>
+    <div class="code-block"><span class="cm">-- 排行榜数据表 + 匿名访问权限（一键执行）</span>
+create table if not exists lb_scores (
+  id bigint generated always as identity primary key,
+  mode text not null,
+  name text not null,
+  score bigint not null default 0,
+  max_tile bigint not null default 0,
+  total_score bigint not null default 0,
+  games bigint not null default 0,
+  created_at timestamptz not null default now(),
+  unique (mode, name)
+);
+
+alter table lb_scores enable row level security;
+
+create policy "公开读取" on lb_scores for select using (true);
+create policy "公开写入" on lb_scores for insert with check (true);
+create policy "公开更新" on lb_scores for update using (true);
+create policy "公开删除" on lb_scores for delete using (true);</div>
+    <div class="warn">⚠️ 这步必须执行：Supabase 新项目默认拒绝匿名访问，不建策略的话玩家上不了榜。上面这段代码把表建好并把权限全开（适合校园排行榜这种公开数据）。</div>
+   </div>
+  </div>
+  <div class="step">
+   <div class="step-num">4</div>
+   <div class="step-body">
+    <div class="step-title">复制两个值（发给 AI 助手）</div>
+    <div class="step-text">左侧 <b>「Project Settings」</b>（最底部齿轮图标）→ 点 <b>「API」</b>，页面上找到并复制：</div>
+    <ul>
+     <li><b>Project URL</b>：形如 <span class="inline-code">https://abcdefghijk.supabase.co</span></li>
+     <li><b>anon public key</b>：一长串 <span class="inline-code">eyJ...</span> 开头的字符串（⚠️ 是 anon 那个，不是 service_role，service_role 绝不能给前端）</li>
+    </ul>
+    <div class="step-text">把这两个值发给 AI 助手，他会帮你填进 <span class="inline-code">game2048.html</span>。</div>
+   </div>
+  </div>
+  <div class="step">
+   <div class="step-num">5</div>
+   <div class="step-body">
+    <div class="step-title">部署并验证</div>
+    <div class="step-text">AI 填好配置后，把 <span class="inline-code">game2048.html</span> 重新部署到 GitHub Pages。打开游戏 → 玩一局 → 点「🏆 排行榜」→ 切到「合成榜」，看到自己上榜、按钮出现绿色「● 实时」即成功。手机玩一局，电脑端也能看到。</div>
+   </div>
+  </div>
+ </div>
+</div>
+
+<div class="card">
+ <h2>📊 榜单规则</h2>
+ <table>
+  <tr><th>榜单</th><th>排序依据</th><th>记录方式</th></tr>
+  <tr><td><b>合成榜</b>（主榜）</td><td>每位玩家的<b>最高单局分数</b>，降序排名</td><td>同一玩家同一模式只保留一条（数据库唯一约束 mode+name），取最高分；同时记录最大合成数与累计总分</td></tr>
+  <tr><td>PK 积分榜</td><td>在线 PK 积分<b>累加</b>，降序排名</td><td>同一玩家只保留一条，积分累加</td></tr>
+ </table>
+ <p class="muted">数据表 lb_scores 的字段：mode（pk/merge）、name（玩家昵称）、score（合成榜=最高分 / PK榜=累计积分）、max_tile（最大合成数）、total_score（累计总分）、games（对局次数）、id（自动生成）。</p>
+ <h3>其他说明</h3>
+ <ul>
+  <li>昵称：第一次玩 PK 或打开排行榜时会提示设置昵称（最长 12 字），保存在浏览器里，可随时修改。</li>
+  <li>刷新频率：排行榜打开时每 10 秒自动刷新一次。</li>
+  <li>清空榜单：排行榜弹窗右下角「清空」按钮，云端模式下会同时清空云端数据（慎用）。</li>
+ </ul>
+</div>
+
+<div class="card">
+ <h2>❓ 常见问题</h2>
+ <ul>
+  <li><b>排行榜按钮没有「● 实时」绿点？</b> → 说明没进云端模式：检查两个值是否填对、是否已重新部署、项目是否创建完成。</li>
+  <li><b>玩了一局但合成榜没我？</b> → 确认分数大于 0（空局不上报）；再确认第 3 步 SQL 执行成功（Success）。</li>
+  <li><b>报错 401 / 403？</b> → 建表 SQL 没执行成功，或 anon key 复制错了。</li>
+  <li><b>本地双击打开测试时不上榜？</b> → 正常，浏览器限制 file:// 直连云端。部署到线上（或本地起 HTTP 服务）再测。</li>
+  <li><b>anon key 写在网页里安全吗？</b> → 安全。anon key 就是给前端公开用的；<b>千万别把 service_role key 写进前端</b>（那个能绕过所有权限）。</li>
+  <li><b>免费额度够吗？</b> → 50 万次/月请求，按每 10 秒刷新一次算，几千人同时用都够。</li>
+ </ul>
+</div>
+
+<div class="card">
+ <h2>🧪 如何验证成功</h2>
+ <ol>
+  <li>手机（关 Wi-Fi 用流量，确保不是同一网络）打开部署后的 2048 页面。</li>
+  <li>设置昵称 → 玩一局拿个分数。</li>
+  <li>电脑打开同一页面 → 排行榜 → 合成榜，能看到手机玩家的昵称和分数，排名自动排好。</li>
+  <li>排行榜按钮出现绿色「● 实时」= 云端模式已生效。</li>
+ </ol>
+ <div class="ok">✅ 看到别人的分数上榜，就说明「对战平台排行榜」真正上线了。</div>
+</div>
+
+<div class="card">
+ <h2>📎 附录：备选方案 LeanCloud（国内版）</h2>
+ <p>如果想换用 LeanCloud（国内节点，但需手机号注册，近期注册可能不稳定），代码也已兼容：</p>
+ <div class="code-block"><span class="cm">&lt;!-- 与 Supabase 配置二选一，填在 game2048.html 的 &lt;head&gt; 后 --&gt;</span>
+&lt;script&gt;
+window.LB_CONFIG = {
+  leancloud: {
+    appId:  "你的AppID",
+    appKey: "你的AppKey",
+    server: "https://你的API服务器地址"
+  }
+};
+&lt;/script&gt;</div>
+ <p class="muted">LeanCloud 版需手动建 Class「LBScore」并把权限设为「无限制」。两个后端同时填了配置时，Supabase 优先。</p>
+</div>
+
+<p class="muted" style="text-align:center;">安工大新生攻略 · 2048对战模块 · 排行榜云端配置指南（Supabase 版）</p>
+
+</div>
+</body>
+</html>
