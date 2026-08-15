@@ -1275,6 +1275,7 @@
   /* ---- 实时同步: 云端模式轮询, 本地模式跳过 ---- */
   function initSSE() {
     if (!LB_READY) return; // 本地模式:不做实时同步
+    lbEnsureReset();       // 云端模式:检查并执行每3天自动清零
     startLbPoll();         // 云端模式:轮询刷新
   }
 
@@ -1330,6 +1331,29 @@
     if (LB_BACKEND === 'supabase') sbReq(method, path, body, cb, extraHeaders, sync);
     else lcReq(method, path, body, cb, sync);
   }
+  // 每 3 天自动清零排行榜(Supabase 云端): 用 __reset__ 特殊行记录上次清零时间
+  var LB_RESET_DAYS = 3;
+  function lbEnsureReset() {
+    if (LB_BACKEND !== 'supabase' || !LB_READY) return;
+    var now = Date.now();
+    var finish = function (st, txt) {
+      if (st !== 200) return;
+      var rows = [];
+      try { rows = JSON.parse(txt) || []; } catch (e) {}
+      var last = (rows && rows.length && rows[0].total_score) ? Number(rows[0].total_score) : 0;
+      if (!last) {
+        // 首次初始化: 写入清零基准时间(不删任何成绩)
+        sbReq('POST', '/lb_scores', { mode: 'pk', name: '__reset__', score: 0, max_tile: 0, total_score: now, games: 0 }, function () {});
+        return;
+      }
+      if (now - last >= LB_RESET_DAYS * 24 * 3600 * 1000) {
+        // 超过 3 天: 清空全部玩家成绩, 保留基准行并更新清零时间
+        sbReq('DELETE', '/lb_scores?name=neq.__reset__', null, function () {});
+        sbReq('PATCH', '/lb_scores?name=eq.__reset__&mode=eq.pk', { total_score: now }, function () {});
+      }
+    };
+    sbReq('GET', '/lb_scores?name=eq.__reset__&mode=eq.pk&limit=1&select=total_score', null, finish);
+  }
   // 查询某模式全部成绩(客户端按最高分/总分排序)
   function lbFetch(mode, cb) {
     if (!LB_READY) { cb && cb(null); return; }
@@ -1346,7 +1370,7 @@
       cb && cb(null);
     }
     if (LB_BACKEND === 'supabase') {
-      lbReq('GET', '/lb_scores?mode=eq.' + mode + '&order=score.desc&limit=1000&select=*', null, finish);
+      lbReq('GET', '/lb_scores?mode=eq.' + mode + '&name=neq.__reset__&order=score.desc&limit=1000&select=*', null, finish);
     } else {
       var where = encodeURIComponent(JSON.stringify({ mode: mode }));
       lbReq('GET', '/classes/LBScore?where=' + where + '&order=-score&limit=1000', null, finish);
